@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "simulboot-common",
+    "simulboot-host",
+    "simulboot-client",
+    "simulboot-broker",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/alethkit/simulboot"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Workspace-internal crates
+simulboot-common = { path = "simulboot-common" }
+simulboot-broker = { path = "simulboot-broker" }
+
+# Serialisation / wire format
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+quick-xml = "0.31"
+sha2 = "0.10"
+hex = "0.4"
+
+# Async runtime + transport
+tokio = { version = "1", features = ["full"] }
+quinn = "0.11"
+bytes = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rcgen = "0.13"
+
+# Diagnostics
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

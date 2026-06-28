@@ -1,0 +1,48 @@
+[package]
+name = "simulboot-host"
+description = "simulboot host: captures a surface on a source machine and serves it over QUIC"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "simulboot-host"
+path = "src/main.rs"
+
+[dependencies]
+simulboot-common.workspace = true
+tokio.workspace = true
+quinn.workspace = true
+bytes.workspace = true
+bincode.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# --- Platform-specific capture/encode/inject backends ---
+# These only enter the build graph on their matching target, so a default build
+# on any host (including CI/Linux) compiles the cross-platform skeleton without
+# pulling native SDK dependencies.
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# CGVirtualDisplay (private CoreGraphics) + ScreenCaptureKit + VideoToolbox.
+# screencapturekit = "0.3"
+# objc2 = "0.5"
+# core-foundation = "0.9"
+# core-graphics = "0.23"
+# ffmpeg-next = "7"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# WGC + hardware encode; HCS API for the Linux VM.
+# windows = { version = "0.58", features = [
+#   "Win32_Graphics_Direct3D11",
+#   "Win32_Graphics_Dxgi",
+#   "Win32_Graphics_Capture",
+#   "Win32_System_WinRT",
+#   "Win32_Foundation",
+#   "Win32_System_Power",
+# ] }
