@@ -162,7 +162,7 @@ impl SessionImage {
     pub fn to_xml(&self) -> String {
         let id = self.id.clone().unwrap_or_else(|| self.compute_id());
         let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-        out.push_str(&self.write_doc_with_id(true, Some(&id)));
+        out.push_str(&self.write_doc_with_id(true, Some(&id), None));
         out
     }
 
@@ -176,10 +176,20 @@ impl SessionImage {
 
     fn write_doc(&self, pretty: bool, include_id: bool) -> String {
         let id = if include_id { self.id.clone() } else { None };
-        self.write_doc_with_id(pretty, id.as_deref())
+        self.write_doc_with_id(pretty, id.as_deref(), None)
     }
 
-    fn write_doc_with_id(&self, pretty: bool, id: Option<&str>) -> String {
+    /// Serialise the `<session>` document. `extra_children`, if present, is a
+    /// pre-rendered block of additional child elements (e.g. the v1
+    /// coefficients namespace, supplied by [`crate::galois`]) spliced in after
+    /// `<layout>` and before `</session>`. It must already be indented for
+    /// `pretty` and carry its own trailing newline when pretty.
+    pub(crate) fn write_doc_with_id(
+        &self,
+        pretty: bool,
+        id: Option<&str>,
+        extra_children: Option<&str>,
+    ) -> String {
         let nl = if pretty { "\n" } else { "" };
         let ind = |n: usize| if pretty { "  ".repeat(n) } else { String::new() };
         let mut s = String::new();
@@ -226,6 +236,12 @@ impl SessionImage {
         s.push_str(&ind(1));
         s.push_str("</layout>");
         s.push_str(nl);
+
+        // v1 coefficients (a sibling of <surfaces>/<layout>, in its own
+        // namespace) splice in here; α is exactly "drop this block".
+        if let Some(extra) = extra_children {
+            s.push_str(extra);
+        }
 
         s.push_str("</session>");
         s

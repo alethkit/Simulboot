@@ -12,14 +12,24 @@
 //!   session (its surfaces, their provenance, and the strip layout) rendered to
 //!   an XML document and content-addressed by the SHA-256 of its canonical form.
 //!
+//! * [`coefficients`] and [`galois`] — the denotational persistence layer: the
+//!   v1 coefficient semiring (timing × security × linearity) and the `α`/`γ`
+//!   Galois connection between v0 and v1 session images, which lets a session
+//!   keep its content-addressed identity across a renderer-pipeline upgrade. See
+//!   `docs/persistence/galois-connection.md`.
+//!
 //! Per the v0 brief this crate deliberately avoids: Cap'n Proto (bincode for
 //! now), session types (plain enums), and Fast Infoset (text XML for now).
 
+pub mod coefficients;
+pub mod galois;
 pub mod session;
 pub mod wire;
 
 // Re-export the most commonly used items at the crate root so downstream crates
 // can `use simulboot_common::{StructureMessage, SurfaceId, ...}`.
+pub use coefficients::{Bound, Coefficient, Confidentiality, Integrity, Interval, Linearity};
+pub use galois::{alpha, gamma, SessionImageV1, SurfaceCoefficient, COEFFICIENTS_NAMESPACE};
 pub use session::{HostEntry, Layout, SessionError, SessionImage, SurfaceEntry};
 pub use wire::{
     Codec, FrameHeader, HostProvenance, InputEvent, OsKind, StructureMessage, SurfaceAnnounce,

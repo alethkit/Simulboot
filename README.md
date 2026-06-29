@@ -17,7 +17,11 @@ where all surfaces reconstitute automatically while the source OS instances keep
 running.
 
 See [`SIMULBOOT_HANDOFF.md`](SIMULBOOT_HANDOFF.md) for the full v0 brief — this
-repository implements that scope and nothing beyond it.
+repository implements that scope and nothing beyond it —
+[`docs/denotation.md`](docs/denotation.md) for the theoretical spine (what a
+session *means*: one denotation, with v0 and v1 as the same thing at different
+coefficients), and [`docs/persistence/`](docs/persistence/) for how a saved
+session survives a renderer upgrade.
 
 ## Workspace layout
 
@@ -41,6 +45,7 @@ build is cross-platform.
 | --- | --- |
 | `simulboot-common` wire protocol (bincode, length-prefixed) | ✅ implemented + tested |
 | `simulboot-common` session image (XML, C14N content addressing) | ✅ implemented + tested |
+| `simulboot-common` v0⇄v1 persistence Galois connection (α/γ, laws L1–L3) | ✅ implemented + property-tested |
 | `simulboot-broker` HTTP session-image server | ✅ implemented + tested |
 | Compositor strip layout (scroll, focus, hit-test) | ✅ implemented + tested |
 | QUIC transport (Quinn, self-signed cert, Tailscale-trust) | ✅ implemented, loopback-verified |
@@ -90,6 +95,17 @@ cargo run -p simulboot-client -- \
   `sha256` of a deterministic canonical serialisation of the data model (the
   `<session>` id attribute is omitted from the hash to avoid circularity). Text
   XML for v0; Fast Infoset deferred.
+- **Persistence telos (denotational scaffolding)** — the v0⇄v1 Galois connection
+  in [`simulboot-common/src/galois.rs`](simulboot-common/src/galois.rs):
+  `α` projects out the v1 coefficient namespace (timing × security × linearity,
+  in [`coefficients.rs`](simulboot-common/src/coefficients.rs)) and `γ` reinstates
+  it at the semiring top — the value v0 holds implicitly. Because the session id
+  is computed over the base projection only, a v0 session survives concretisation
+  to v1, loading into a future renderer, and re-checkpointing with a *stable
+  hash* (laws L1–L3). The maps are specified language-agnostically in
+  [`docs/persistence/`](docs/persistence/) (spec, XSDs, and a Python oracle); the
+  Rust implementation answers that spec and is checked by property tests in
+  [`tests/galois_laws.rs`](simulboot-common/tests/galois_laws.rs).
 - **Surface uniformity (Claim B)** — every host implements one interface
   (`CaptureSource`: announce / frames / input). The compositor has no per-OS
   code paths.
