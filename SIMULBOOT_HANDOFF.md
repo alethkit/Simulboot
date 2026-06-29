@@ -160,7 +160,7 @@ Do not implement any of the following:
 - Session types (use simple enum messages instead)
 - Graded comonad / product lattice / coeffect system
 - WASM firm tier
-- Cap'n Proto wire format (use bincode for v0)
+- Cap'n Proto wire format (use postcard for v0)
 - Content hash deduplication on the content channel
 - Morphism algebra (no translate/composite/resample morphisms)
 - Reactive DAG (no push-pull FRP)
@@ -276,10 +276,14 @@ pub enum StructureMessage {
 }
 ```
 
-Wire format: **bincode** over length-prefixed frames on the QUIC stream.
-Content channel: raw encoded bytes with `FrameHeader` prepended (also bincode).
+Wire format: **postcard** over length-prefixed frames on the QUIC stream.
+Content channel: raw encoded bytes with `FrameHeader` prepended (also postcard).
 
-Replace bincode with Cap'n Proto in v1 when zero-copy parsing matters.
+(This brief originally specified bincode; it was replaced with postcard — a
+maintained, serde-native format with a stable wire spec — because bincode is
+unmaintained, RUSTSEC-2025-0141. See `alternatives.md`.)
+
+Replace postcard with Cap'n Proto in v1 when zero-copy parsing matters.
 
 ---
 
@@ -718,7 +722,7 @@ within `[scroll_pos, scroll_pos + viewport_width]`.
 ```toml
 # simulboot-common
 serde = { version = "1", features = ["derive"] }
-bincode = "1"
+postcard = { version = "1", default-features = false, features = ["use-std"] }
 quick-xml = "0.31"
 
 # simulboot-host (macOS target)

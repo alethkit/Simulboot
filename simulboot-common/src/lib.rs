@@ -6,7 +6,7 @@
 //! * [`wire`] — the QUIC wire protocol: the [`wire::StructureMessage`] control
 //!   enum exchanged on the reliable stream, and the [`wire::FrameHeader`] that
 //!   prefixes encoded frames on the datagram channel. Both are serialised with
-//!   bincode behind a length prefix (see [`wire::encode_frame`]).
+//!   postcard behind a length prefix (see [`wire::encode_frame`]).
 //!
 //! * [`session`] — the session image: a self-describing snapshot of a running
 //!   session (its surfaces, their provenance, and the strip layout) rendered to
@@ -18,7 +18,7 @@
 //!   keep its content-addressed identity across a renderer-pipeline upgrade. See
 //!   `docs/persistence/galois-connection.md`.
 //!
-//! Per the v0 brief this crate deliberately avoids: Cap'n Proto (bincode for
+//! Per the v0 brief this crate deliberately avoids: Cap'n Proto (postcard for
 //! now), session types (plain enums), and Fast Infoset (text XML for now).
 
 pub mod coefficients;

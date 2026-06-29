@@ -43,7 +43,7 @@ build is cross-platform.
 
 | Area | State |
 | --- | --- |
-| `simulboot-common` wire protocol (bincode, length-prefixed) | ✅ implemented + tested |
+| `simulboot-common` wire protocol (postcard, length-prefixed) | ✅ implemented + tested |
 | `simulboot-common` session image (XML, C14N content addressing) | ✅ implemented + tested |
 | `simulboot-common` v0⇄v1 persistence Galois connection (α/γ, laws L1–L3) | ✅ implemented + property-tested |
 | `simulboot-broker` HTTP session-image server | ✅ implemented + tested |
@@ -87,9 +87,10 @@ cargo run -p simulboot-client -- \
 ## Design notes
 
 - **Wire protocol** — `StructureMessage` control enum on a QUIC reliable stream;
-  `FrameHeader`-prefixed encoded frames on QUIC datagrams. bincode for v0
-  (Cap'n Proto deferred to v1). A plain enum stands in for the Scribble
-  multiparty session type (specified in the handoff).
+  `FrameHeader`-prefixed encoded frames on QUIC datagrams. postcard for v0 —
+  a maintained, serde-native binary format with a stable wire spec (bincode is
+  unmaintained, RUSTSEC-2025-0141); Cap'n Proto deferred to v1. A plain enum
+  stands in for the Scribble multiparty session type (specified in the handoff).
 - **Session image** — an XML Information Set in the
   `https://simulboot.dev/session/v1` namespace. Content-addressed by
   `sha256` of a deterministic canonical serialisation of the data model (the

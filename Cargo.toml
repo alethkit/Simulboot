@@ -20,8 +20,12 @@ simulboot-common = { path = "simulboot-common" }
 simulboot-broker = { path = "simulboot-broker" }
 
 # Serialisation / wire format
+# postcard, not bincode: bincode is unmaintained (RUSTSEC-2025-0141). postcard is
+# a maintained, serde-native binary format with a documented, stable wire spec —
+# the right fit for a versioned host↔compositor protocol. See docs/alternatives.md
+# for the bitcode option to revisit.
 serde = { version = "1", features = ["derive"] }
-bincode = "1"
+postcard = { version = "1", default-features = false, features = ["use-std"] }
 quick-xml = "0.31"
 sha2 = "0.10"
 hex = "0.4"

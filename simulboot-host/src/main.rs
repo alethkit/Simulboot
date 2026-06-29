@@ -193,7 +193,7 @@ async fn send_message(send: &mut quinn::SendStream, msg: &StructureMessage) -> R
 /// fragmentation is a later concern (and irrelevant while backends are stubs).
 fn send_frame(conn: &quinn::Connection, surface_id: [u8; 32], frame: &EncodedFrame) -> Result<()> {
     let header = FrameHeader { surface_id, pts: frame.pts, len: frame.bytes.len() as u32 };
-    let mut buf = bincode::serialize(&header).context("serialising frame header")?;
+    let mut buf = postcard::to_stdvec(&header).context("serialising frame header")?;
     buf.extend_from_slice(&frame.bytes);
 
     if let Some(max) = conn.max_datagram_size() {

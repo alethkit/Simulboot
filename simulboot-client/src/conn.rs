@@ -13,7 +13,6 @@
 //! yet call them.
 #![allow(dead_code)]
 
-use std::io::Cursor;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -180,14 +179,13 @@ pub async fn connect(
     Ok(Link { announce, host_addr: addr, control: control_tx, suspend_ack: ack_rx })
 }
 
-/// Decode a content datagram: a bincode [`FrameHeader`] followed by the encoded
+/// Decode a content datagram: a postcard [`FrameHeader`] followed by the encoded
 /// frame bytes.
 fn decode_datagram(datagram: &[u8]) -> Result<FrameEvent> {
-    let mut cursor = Cursor::new(datagram);
-    let header: FrameHeader =
-        bincode::deserialize_from(&mut cursor).context("decoding frame header")?;
-    let offset = cursor.position() as usize;
-    let payload = &datagram[offset..];
+    // `take_from_bytes` decodes the header and hands back the trailing payload
+    // slice directly — no cursor/offset bookkeeping.
+    let (header, payload): (FrameHeader, &[u8]) =
+        postcard::take_from_bytes(datagram).context("decoding frame header")?;
     if payload.len() != header.len as usize {
         tracing::debug!(
             declared = header.len,

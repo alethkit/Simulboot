@@ -8,8 +8,12 @@
 //!   followed by `header.len` bytes of the encoded video frame.
 //!
 //! Both directions use the same framing: a 4-byte big-endian length prefix
-//! followed by a bincode-serialised body. Use [`encode_frame`] to produce a
+//! followed by a postcard-serialised body. Use [`encode_frame`] to produce a
 //! frame and [`decode_frame`] to pull one back out of a buffer.
+//!
+//! postcard (not bincode, which is unmaintained — RUSTSEC-2025-0141) is a
+//! serde-native binary format with a documented, stable wire specification,
+//! which is what a versioned host↔compositor protocol wants.
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -117,8 +121,8 @@ pub enum StructureMessage {
 /// Errors from framing/serialisation of wire messages.
 #[derive(Debug, thiserror::Error)]
 pub enum WireError {
-    #[error("bincode (de)serialisation failed: {0}")]
-    Bincode(#[from] bincode::Error),
+    #[error("postcard (de)serialisation failed: {0}")]
+    Postcard(#[from] postcard::Error),
     /// The buffer did not contain a full 4-byte length prefix yet.
     #[error("incomplete frame: need {needed} bytes, have {have}")]
     Incomplete { needed: usize, have: usize },
@@ -132,10 +136,10 @@ pub enum WireError {
 /// huge allocation.
 pub const MAX_FRAME_LEN: usize = 16 * 1024 * 1024;
 
-/// Serialise `msg` to a length-prefixed bincode frame: a 4-byte big-endian
+/// Serialise `msg` to a length-prefixed postcard frame: a 4-byte big-endian
 /// length followed by the body.
 pub fn encode_frame<T: Serialize>(msg: &T) -> Result<Vec<u8>, WireError> {
-    let body = bincode::serialize(msg)?;
+    let body = postcard::to_stdvec(msg)?;
     let mut buf = Vec::with_capacity(body.len() + 4);
     buf.extend_from_slice(&(body.len() as u32).to_be_bytes());
     buf.extend_from_slice(&body);
@@ -160,7 +164,7 @@ pub fn decode_frame<T: DeserializeOwned>(buf: &[u8]) -> Result<(T, usize), WireE
     if buf.len() < total {
         return Err(WireError::Incomplete { needed: total, have: buf.len() });
     }
-    let msg = bincode::deserialize(&buf[4..total])?;
+    let msg = postcard::from_bytes(&buf[4..total])?;
     Ok((msg, total))
 }
 
