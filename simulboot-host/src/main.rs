@@ -150,6 +150,10 @@ async fn serve_connection(conn: quinn::Connection, announce: SurfaceAnnounce, os
 
 /// Select the platform capture backend. Falls back to [`NullCapture`] on
 /// platforms without an implemented backend.
+// Each `cfg` arm `return`s because exactly one survives per target; the others
+// compile out, leaving no tail expression. Clippy sees only the active arm and
+// flags its `return` as needless, which it isn't across targets.
+#[allow(clippy::needless_return)]
 fn build_source(os: OsKind, announce: SurfaceAnnounce) -> Result<Box<dyn CaptureSource>> {
     let _ = os;
     #[cfg(target_os = "macos")]
