@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Simulboot session image schema — BASE namespace.
+
+  This namespace (session/v1) contains exactly the v0-visible content of a
+  session: surface identities, host provenance, dimensions, codec, and layout.
+  It carries NO coefficient information (no timing, no security, no linearity).
+
+  This is the target of the abstraction map alpha: a v1 session image projected
+  to this namespace alone is a valid v0 session image.
+
+  Identity rule: session_id = SHA256(C14N(document restricted to this namespace)).
+  Because alpha only drops elements in the coefficients namespace, and those
+  elements are (by schema construction) never in the base namespace, the C14N
+  of the base projection is stable under round-tripping through v1. This is what
+  makes the Galois round-trip law hold at the level of content-addressed identity.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="https://simulboot.dev/session/v1"
+           targetNamespace="https://simulboot.dev/session/v1"
+           elementFormDefault="qualified">
+
+  <xs:element name="session">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="surfaces" type="Surfaces"/>
+        <xs:element name="layout" type="Layout"/>
+        <!--
+          The coefficients block is OPTIONAL and lives in a DIFFERENT namespace
+          (session/v1/coefficients). A v0 document omits it entirely. A v1
+          document includes it. The base schema permits but does not require it
+          via a wildcard, so that v0 parsers validating against this schema alone
+          accept v1 documents (forward compatibility), ignoring what they cannot
+          interpret.
+        -->
+        <xs:any namespace="https://simulboot.dev/session/v1/coefficients"
+                minOccurs="0" maxOccurs="unbounded"
+                processContents="lax"/>
+      </xs:sequence>
+      <xs:attribute name="id" type="xs:string" use="required"/>
+      <xs:attribute name="created" type="xs:dateTime" use="required"/>
+      <xs:attribute name="schema-version" type="xs:int" use="required"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="Surfaces">
+    <xs:sequence>
+      <xs:element name="surface" type="Surface" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Surface">
+    <xs:sequence>
+      <xs:element name="host" type="Host"/>
+      <xs:element name="codec" type="Codec"/>
+      <xs:element name="dimensions" type="Dimensions"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="order" type="xs:nonNegativeInteger" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="Host">
+    <xs:sequence>
+      <xs:element name="address" type="xs:string"/>
+      <xs:element name="os" type="Os"/>
+      <xs:element name="machine" type="xs:string"/>
+      <xs:element name="capture" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="Os">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="macOS"/>
+      <xs:enumeration value="Windows"/>
+      <xs:enumeration value="Linux"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Codec">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="H265"/>
+      <xs:enumeration value="AV1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="Dimensions">
+    <xs:attribute name="width" type="xs:positiveInteger" use="required"/>
+    <xs:attribute name="height" type="xs:positiveInteger" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="Layout">
+    <xs:sequence>
+      <xs:element name="strip" type="Strip"/>
+      <xs:element name="focus" type="Focus"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Strip">
+    <xs:attribute name="scroll-pos" type="xs:decimal" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="Focus">
+    <xs:attribute name="surface-ref" type="xs:string" use="required"/>
+  </xs:complexType>
+
+</xs:schema>

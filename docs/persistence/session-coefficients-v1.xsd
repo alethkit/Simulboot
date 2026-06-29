@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Simulboot session image schema — COEFFICIENTS namespace.
+
+  This namespace (session/v1/coefficients) carries the graded structure that
+  v1 adds and v0 does not represent: per-surface timing multi-intervals,
+  security labels (confidentiality x integrity), and linearity counts.
+
+  These elements are the ONLY thing alpha drops and gamma reinstates. The
+  abstraction map alpha is exactly "delete every element in this namespace."
+  The concretisation map gamma is exactly "for every surface, insert a
+  coefficient block at the semiring top (the most permissive value)."
+
+  The coefficient denotation, per the substrate design:
+
+    r = Interval^n  x  (Confidentiality x Integrity)  x  N
+
+  where:
+    - Interval^n is the timing multi-interval (Elliott, Timely Computation 2023):
+      one stability interval per input delay path, composed by linear maps over
+      the interval semiring. Top element: the unbounded interval [-inf, +inf]
+      meaning "no timing guarantee" (which is what v0 has implicitly).
+    - (Confidentiality x Integrity) is the IFC label lattice. Top element of the
+      product-as-grading is the MOST PERMISSIVE label: public confidentiality,
+      untrusted integrity — i.e. "no security restriction asserted", which is
+      what v0 has (Tailscale transport only, no per-surface IFC).
+    - N is the linearity count. Top element: unbounded (omega) — "may be consumed
+      any number of times", which is v0's frame-copying behaviour.
+
+  CRITICAL for the Galois law: gamma must insert the SEMIRING TOP, because
+  r = top is precisely the v0 coefficient. This makes alpha . gamma = id on v0
+  images (a v0 image concretised then abstracted is unchanged), and makes
+  gamma . alpha >= id on v1 images with the residual being exactly the
+  coefficient information a v0 renderer cannot preserve.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="https://simulboot.dev/session/v1/coefficients"
+           xmlns:base="https://simulboot.dev/session/v1"
+           targetNamespace="https://simulboot.dev/session/v1/coefficients"
+           elementFormDefault="qualified">
+
+  <!--
+    A coefficients block references a surface by its id (content hash) and
+    carries the three graded dimensions. It lives as a sibling of <surfaces>
+    and <layout> under <session>, referencing surfaces by id rather than
+    nesting inside them, so that the base-namespace projection (alpha) is a
+    clean subtree deletion with no surgery inside <surface> elements.
+  -->
+  <xs:element name="coefficients">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="surface-coefficient" type="SurfaceCoefficient"
+                    maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="SurfaceCoefficient">
+    <xs:sequence>
+      <xs:element name="timing" type="Timing"/>
+      <xs:element name="security" type="Security"/>
+      <xs:element name="linearity" type="Linearity"/>
+    </xs:sequence>
+    <!-- references Surface/@id in the base namespace -->
+    <xs:attribute name="surface-ref" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <!--
+    Timing: a multi-interval. Each <delay-path> is one dimension of the
+    multi-interval (one input-to-output delay path through the compositor).
+    lo/hi in nanoseconds. The semiring-top value is a single delay-path with
+    lo="-INF" hi="+INF".
+  -->
+  <xs:complexType name="Timing">
+    <xs:sequence>
+      <xs:element name="delay-path" type="DelayPath" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DelayPath">
+    <xs:attribute name="lo" type="xs:string" use="required"/>  <!-- decimal or "-INF" -->
+    <xs:attribute name="hi" type="xs:string" use="required"/>  <!-- decimal or "+INF" -->
+  </xs:complexType>
+
+  <!--
+    Security: a point in the (Confidentiality x Integrity) lattice.
+    Semiring-top = most permissive = (public, untrusted).
+  -->
+  <xs:complexType name="Security">
+    <xs:attribute name="confidentiality" type="Confidentiality" use="required"/>
+    <xs:attribute name="integrity" type="Integrity" use="required"/>
+  </xs:complexType>
+
+  <xs:simpleType name="Confidentiality">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="public"/>     <!-- TOP: least restrictive -->
+      <xs:enumeration value="restricted"/>
+      <xs:enumeration value="secret"/>     <!-- bottom: most restrictive -->
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Integrity">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="untrusted"/>  <!-- TOP: least restrictive -->
+      <xs:enumeration value="endorsed"/>
+      <xs:enumeration value="trusted"/>    <!-- bottom: most restrictive -->
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--
+    Linearity: usage count. "omega" is the top (unbounded use). A finite count
+    bounds how many consumers may read the surface signal (relevant for FIP
+    in-place update in v1).
+  -->
+  <xs:complexType name="Linearity">
+    <xs:attribute name="count" type="xs:string" use="required"/> <!-- nonneg int or "omega" -->
+  </xs:complexType>
+
+</xs:schema>
