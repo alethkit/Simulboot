@@ -68,4 +68,4 @@ The check that says it's finished (a test, a demo step, a metric).
 - [`0001-capture-backends.md`](0001-capture-backends.md) — real per-OS
   `CaptureSource` backends (the top blocking skeleton).
 - [`0002-async-runtime.md`](0002-async-runtime.md) — drop tokio for
-  `quinn[runtime-smol]` + smol/async-io *(Draft — proposed)*.
+  `quinn[runtime-smol]` + smol/async-io *(Accepted)*.

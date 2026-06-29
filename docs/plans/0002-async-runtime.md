@@ -1,6 +1,6 @@
 # 0002 — Async runtime
 
-- **Status:** Draft (proposed — awaiting ratification)
+- **Status:** Accepted (2026-06-29)
 - **Skeletons:** none (architecture decision, not a placeholder)
 - **Updated:** 2026-06-29
 - **Summary:** drop full tokio in favour of `quinn` on its `runtime-smol`
