@@ -1,6 +1,6 @@
 # 0002 — Async runtime
 
-- **Status:** Accepted (2026-06-29)
+- **Status:** Accepted (2026-06-29) — implemented on the code branch (`83196bd`)
 - **Skeletons:** none (architecture decision, not a placeholder)
 - **Updated:** 2026-06-29
 - **Summary:** drop full tokio in favour of `quinn` on its `runtime-smol`
@@ -59,8 +59,9 @@ Adopt **`quinn` with `runtime-smol`** as the async substrate:
   reactor and timers, `async-channel` for mpsc-style channels, `async-net` for
   the broker's `TcpListener`, `futures-lite` for combinators (`timeout` becomes
   `async-io::Timer` + `or`).
-- `tokio` is removed from the workspace. `simulboot-common` already has no
-  runtime dependency and is unaffected.
+- `tokio` is removed as a *direct* dependency of every crate. It remains in the
+  tree only as quinn's own non-optional leaf (see Consequences).
+  `simulboot-common` already has no runtime dependency and is unaffected.
 
 This keeps quinn's ergonomic `Endpoint`/`Connection`/datagram API; only the
 runtime underneath changes.
@@ -78,18 +79,29 @@ runtime underneath changes.
    custom event loop alongside render/capture pacing — out of scope for the
    black triangle. **Deferred**, not discarded (see below).
 3. **`quinn` + `runtime-smol` (chosen).** ~95% of the benefit of option 2 (no
-   tokio, light async-io executor, winit-friendly) for a fraction of the work,
-   because quinn still drives the protocol.
+   tokio *runtime*, light async-io executor, winit-friendly) for a fraction of
+   the work, because quinn still drives the protocol. Caveat learned in
+   implementation: quinn keeps a `tokio/sync` leaf (see Consequences); only
+   option 2 removes `tokio` entirely.
 
 ## Consequences
 
+- **tokio is not fully removable** (corrected after implementation). quinn
+  0.11's `[dependencies.tokio]` is *non-optional* with `features = ["sync"]`, so
+  `tokio` stays in the tree as a quinn-internal leaf regardless of runtime. The
+  build activates only its `sync` (+ empty `default`) feature — **no `rt`,
+  `net`, `time`, macros, scheduler, or signal handling**. What this ADR removes
+  is the tokio *runtime*, not the `tokio` crate. Dropping the leaf too would
+  mean dropping quinn (i.e. option 2, `quinn-proto` sans-IO).
 - No multithreaded work-stealing scheduler. For our workload this is fine and
   arguably an improvement next to winit (no parking a multithreaded runtime on
   the main thread).
 - Two small ergonomic losses, both trivially covered: `spawn_blocking`
-  (→ dedicated `std::thread`, natural for the blocking capture loop) and
-  `tokio::sync::watch` (→ `async-watch` or an `event-listener`-based cell; used
-  only for the suspend-ack signal in `conn.rs`).
+  (→ `smol::unblock`, natural for the blocking capture loop) and
+  `tokio::sync::watch` (→ a bounded(1) `async-channel`; used only for the
+  suspend-ack signal in `conn.rs`).
+- No built-in signal handling (tokio had `signal::ctrl_c`); Ctrl-C is handled
+  via a `ctrlc` handler fanned out over a channel.
 - Slightly more explicit endpoint construction (`Endpoint::new` with a bound
   `UdpSocket` and the runtime), versus quinn's tokio convenience constructors.
 
@@ -97,26 +109,34 @@ runtime underneath changes.
 
 Bounded to the three binaries; `simulboot-common` untouched.
 
+As implemented (`83196bd` on the code branch):
+
 - **simulboot-host** — `main.rs`: `#[tokio::main]` → `smol::block_on`;
   `tokio::spawn` → `smol::spawn(_).detach()`; `spawn_blocking` (capture `run`)
-  → `std::thread`; channels → `async-channel`. `net.rs`: `Endpoint::new` +
+  → `smol::unblock`; channels → `async-channel` (`recv_blocking` on the capture
+  thread). `net.rs`: `Endpoint::new` + `SmolRuntime`.
+- **simulboot-client** — `main.rs`: entrypoint → `smol::block_on`; present-loop
+  timing → `smol::Timer`; Ctrl-C → `ctrlc` handler over a channel. `conn.rs`:
+  `mpsc` → `async-channel`, the suspend-ack `watch` → a bounded(1)
+  `async-channel`, `timeout` → `smol::future::or` + `smol::Timer`. `net.rs`:
   `SmolRuntime`.
-- **simulboot-client** — `main.rs`: entrypoint + present-loop timing
-  (`tokio::time` → `async-io::Timer`). `conn.rs`: `mpsc`/`watch` → `async-channel`
-  + watch replacement; `timeout` → `futures-lite`. `net.rs`: `SmolRuntime`.
-- **simulboot-broker** — `TcpListener`/accept loop → `async-net` + smol;
-  `main.rs` entrypoint.
-- **Cargo** — drop `tokio`; add `smol`, `async-io`, `async-channel`, `async-net`,
-  `futures-lite` (and a watch crate if needed) to the workspace; flip quinn to
-  `default-features = false` + `runtime-smol`.
+- **simulboot-broker** — `TcpListener`/accept loop → `smol::net` + `smol::io`,
+  `select!` → `smol::future::or`; `main.rs` entrypoint + `ctrlc`.
+- **Cargo** — drop direct `tokio`; add `smol`, `async-channel`, `ctrlc` (smol
+  re-exports async-io / async-net / futures-lite, so no separate entries); flip
+  quinn to `default-features = false` + `["runtime-smol", "rustls-ring"]`.
 
 ## Acceptance
 
-- The loopback flow (connect → announce → strip → suspend → checkpoint → serve
-  → resume → reconnect) passes with no tokio in the dependency tree
-  (`cargo tree | grep -c tokio` is 0).
-- `cargo build --workspace` and `cargo test --workspace` stay green;
-  `cargo clippy --workspace --all-targets` stays at zero warnings.
+- The loopback flow (connect → announce → strip → suspend → checkpoint → serve)
+  runs on the smol runtime — verified by hand: host accepts, compositor
+  connects, SIGINT triggers `1/1 hosts acknowledged suspend`, and a valid
+  content-addressed `session.xml` is written and served.
+- No tokio **runtime** in the tree: `cargo tree -e features -i tokio` shows only
+  the `sync` (+ empty `default`) feature, pulled by quinn alone — no `rt`/`net`/
+  `time`/macros, and no direct dependency from our crates.
+- `cargo build --workspace`, `cargo test --workspace` (52 tests), and
+  `cargo clippy --workspace --all-targets` all stay green.
 
 ## Deferred: quinn-proto sans-IO
 
