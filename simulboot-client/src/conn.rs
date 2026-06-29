@@ -21,7 +21,6 @@ use anyhow::{bail, Context, Result};
 use quinn::Endpoint;
 use simulboot_common::wire::{decode_frame, encode_frame, WireError};
 use simulboot_common::{FrameHeader, StructureMessage, SurfaceAnnounce, SurfaceId};
-use tokio::sync::{mpsc, watch};
 
 /// A frame arrival, surfaced to the compositor for diagnostics/repaint.
 #[derive(Debug, Clone, Copy)]
@@ -37,9 +36,9 @@ pub struct Link {
     /// Where this host lives, recorded into the session image.
     pub host_addr: SocketAddr,
     /// Send control/input messages to the host (input, suspend, disconnect).
-    pub control: mpsc::Sender<StructureMessage>,
-    /// Flips to `true` once the host has acknowledged a `Suspend`.
-    pub suspend_ack: watch::Receiver<bool>,
+    pub control: async_channel::Sender<StructureMessage>,
+    /// Receives a single message once the host has acknowledged a `Suspend`.
+    pub suspend_ack: async_channel::Receiver<()>,
 }
 
 impl Link {
@@ -58,18 +57,14 @@ impl Link {
         if self.control.send(StructureMessage::Suspend).await.is_err() {
             return false;
         }
-        let mut rx = self.suspend_ack.clone();
-        let wait = async {
-            loop {
-                if *rx.borrow() {
-                    return true;
-                }
-                if rx.changed().await.is_err() {
-                    return false;
-                }
-            }
-        };
-        tokio::time::timeout(within, wait).await.unwrap_or(false)
+        smol::future::or(
+            async { self.suspend_ack.recv().await.is_ok() },
+            async {
+                smol::Timer::after(within).await;
+                false
+            },
+        )
+        .await
     }
 }
 
@@ -80,7 +75,7 @@ pub async fn connect(
     endpoint: &Endpoint,
     addr: SocketAddr,
     resume_session_id: Option<String>,
-    frames: mpsc::Sender<FrameEvent>,
+    frames: async_channel::Sender<FrameEvent>,
 ) -> Result<Link> {
     let connection = endpoint
         .connect(addr, "simulboot-host")
@@ -102,8 +97,8 @@ pub async fn connect(
         None => bail!("host closed structure stream before announcing"),
     };
 
-    let (control_tx, mut control_rx) = mpsc::channel::<StructureMessage>(64);
-    let (ack_tx, ack_rx) = watch::channel(false);
+    let (control_tx, control_rx) = async_channel::bounded::<StructureMessage>(64);
+    let (ack_tx, ack_rx) = async_channel::bounded::<()>(1);
 
     // Resume: nudge the host to reconnect this surface into the session.
     if let Some(session_id) = resume_session_id {
@@ -112,8 +107,8 @@ pub async fn connect(
     }
 
     // Writer task: drains control/input out to the host.
-    tokio::spawn(async move {
-        while let Some(msg) = control_rx.recv().await {
+    smol::spawn(async move {
+        while let Ok(msg) = control_rx.recv().await {
             let bytes = match encode_frame(&msg) {
                 Ok(b) => b,
                 Err(e) => {
@@ -130,14 +125,15 @@ pub async fn connect(
                 break;
             }
         }
-    });
+    })
+    .detach();
 
     // Reader task: absorbs acks and reconnect results.
-    tokio::spawn(async move {
+    smol::spawn(async move {
         loop {
             match read_message(&mut recv, &mut buf).await {
                 Ok(Some(StructureMessage::SuspendAck)) => {
-                    let _ = ack_tx.send(true);
+                    let _ = ack_tx.try_send(());
                 }
                 Ok(Some(StructureMessage::ReconnectOk(a))) => {
                     tracing::info!(name = %a.name, "host reconnected");
@@ -156,11 +152,12 @@ pub async fn connect(
                 }
             }
         }
-    });
+    })
+    .detach();
 
     // Datagram pump: content frames in.
     let dgram_conn = connection.clone();
-    tokio::spawn(async move {
+    smol::spawn(async move {
         loop {
             match dgram_conn.read_datagram().await {
                 Ok(datagram) => match decode_datagram(&datagram) {
@@ -177,7 +174,8 @@ pub async fn connect(
                 }
             }
         }
-    });
+    })
+    .detach();
 
     Ok(Link { announce, host_addr: addr, control: control_tx, suspend_ack: ack_rx })
 }

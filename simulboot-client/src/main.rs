@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use simulboot_broker::ServedImage;
-use tokio::sync::{mpsc, Mutex};
+use smol::lock::Mutex;
 
 mod conn;
 mod net;
@@ -37,8 +37,7 @@ use conn::{FrameEvent, Link};
 use render::{HeadlessRenderer, Renderer};
 use strip::{Strip, Surface};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -50,19 +49,33 @@ async fn main() -> Result<()> {
         .ok();
 
     let cfg = Config::from_args(std::env::args().skip(1))?;
+    smol::block_on(run(cfg))
+}
+
+async fn run(cfg: Config) -> Result<()> {
     let endpoint = net::client_endpoint()?;
 
     let strip = Arc::new(Mutex::new(Strip::new(cfg.viewport.0, cfg.viewport.1)));
 
+    // First Ctrl-C suspends; a second (during serve) stops the broker. smol has
+    // no signal handling, so install a process-wide SIGINT handler that fans out
+    // over a channel.
+    let (ctrl_tx, ctrl_rx) = async_channel::unbounded::<()>();
+    ctrlc::set_handler(move || {
+        let _ = ctrl_tx.try_send(());
+    })
+    .context("installing Ctrl-C handler")?;
+
     // Frame-arrival pump: update per-surface diagnostics as content flows in.
-    let (frame_tx, mut frame_rx) = mpsc::channel::<FrameEvent>(256);
+    let (frame_tx, frame_rx) = async_channel::bounded::<FrameEvent>(256);
     {
         let strip = Arc::clone(&strip);
-        tokio::spawn(async move {
-            while let Some(ev) = frame_rx.recv().await {
+        smol::spawn(async move {
+            while let Ok(ev) = frame_rx.recv().await {
                 strip.lock().await.note_frame(&ev.surface_id, ev.pts);
             }
-        });
+        })
+        .detach();
     }
 
     let links = match &cfg.mode {
@@ -78,18 +91,18 @@ async fn main() -> Result<()> {
     // Headless present loop.
     {
         let strip = Arc::clone(&strip);
-        tokio::spawn(async move {
+        smol::spawn(async move {
             let mut renderer = HeadlessRenderer::new();
-            let mut tick = tokio::time::interval(Duration::from_millis(250));
             loop {
-                tick.tick().await;
+                smol::Timer::after(Duration::from_millis(250)).await;
                 renderer.present(&*strip.lock().await);
             }
-        });
+        })
+        .detach();
     }
 
-    tokio::signal::ctrl_c().await.ok();
-    suspend_and_serve(links, &strip, &cfg).await
+    let _ = ctrl_rx.recv().await;
+    suspend_and_serve(links, &strip, &cfg, ctrl_rx).await
 }
 
 /// Live mode: connect to each host and append its surface to the strip.
@@ -97,7 +110,7 @@ async fn connect_live(
     endpoint: &quinn::Endpoint,
     hosts: &[SocketAddr],
     strip: &Arc<Mutex<Strip>>,
-    frame_tx: &mpsc::Sender<FrameEvent>,
+    frame_tx: &async_channel::Sender<FrameEvent>,
 ) -> Result<Vec<Link>> {
     let mut links = Vec::new();
     for &addr in hosts {
@@ -120,7 +133,7 @@ async fn resume(
     endpoint: &quinn::Endpoint,
     url: &str,
     strip: &Arc<Mutex<Strip>>,
-    frame_tx: &mpsc::Sender<FrameEvent>,
+    frame_tx: &async_channel::Sender<FrameEvent>,
 ) -> Result<Vec<Link>> {
     tracing::info!(%url, "resuming session");
     let image = session::fetch_image(url).await?;
@@ -180,7 +193,12 @@ fn surface_from_announce(
 
 /// The suspension flow: Suspend → SuspendAck → checkpoint → serve (F3, brief
 /// "Session checkpoint" steps 1–7).
-async fn suspend_and_serve(links: Vec<Link>, strip: &Arc<Mutex<Strip>>, cfg: &Config) -> Result<()> {
+async fn suspend_and_serve(
+    links: Vec<Link>,
+    strip: &Arc<Mutex<Strip>>,
+    cfg: &Config,
+    ctrl_c: async_channel::Receiver<()>,
+) -> Result<()> {
     tracing::info!("suspending: notifying {} host(s)", links.len());
     let acks = futures_join_all(links.iter().map(|l| l.suspend(Duration::from_secs(5)))).await;
     let acked = acks.iter().filter(|ok| **ok).count();
@@ -206,8 +224,8 @@ async fn suspend_and_serve(links: Vec<Link>, strip: &Arc<Mutex<Strip>>, cfg: &Co
     );
 
     let served = ServedImage::new_xml(id, xml.into_bytes());
-    let shutdown = async {
-        tokio::signal::ctrl_c().await.ok();
+    let shutdown = async move {
+        let _ = ctrl_c.recv().await;
     };
     simulboot_broker::serve(("0.0.0.0", cfg.broker_port), served, shutdown).await
 }

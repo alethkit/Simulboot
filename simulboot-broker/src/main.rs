@@ -16,8 +16,7 @@ use anyhow::{bail, Context};
 use simulboot_broker::{serve, ServedImage};
 use simulboot_common::SessionImage;
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -25,7 +24,7 @@ async fn main() -> ExitCode {
         )
         .init();
 
-    match run().await {
+    match smol::block_on(run()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             tracing::error!("{e:#}");
@@ -50,10 +49,19 @@ async fn run() -> anyhow::Result<()> {
     );
 
     let served = ServedImage::new_xml(id, xml.into_bytes());
-    let shutdown = async {
-        let _ = tokio::signal::ctrl_c().await;
-    };
-    serve((cfg.bind.as_str(), cfg.port), served, shutdown).await
+    serve((cfg.bind.as_str(), cfg.port), served, ctrl_c()).await
+}
+
+/// A future that resolves on the first Ctrl-C (SIGINT). Installs a process-wide
+/// handler once; smol has no built-in signal handling.
+fn ctrl_c() -> impl std::future::Future<Output = ()> {
+    let (tx, rx) = async_channel::bounded::<()>(1);
+    let _ = ctrlc::set_handler(move || {
+        let _ = tx.try_send(());
+    });
+    async move {
+        let _ = rx.recv().await;
+    }
 }
 
 struct Config {

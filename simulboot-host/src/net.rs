@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use quinn::crypto::rustls::QuicServerConfig;
-use quinn::{Endpoint, ServerConfig};
+use quinn::{Endpoint, EndpointConfig, ServerConfig, SmolRuntime};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use simulboot_common::ALPN;
 
@@ -35,7 +35,18 @@ pub fn server_endpoint(bind: SocketAddr) -> Result<Endpoint> {
     tls.alpn_protocols = vec![ALPN.to_vec()];
 
     let quic = QuicServerConfig::try_from(tls).context("building QUIC server config")?;
-    let endpoint = Endpoint::server(ServerConfig::with_crypto(Arc::new(quic)), bind)
-        .with_context(|| format!("binding QUIC endpoint on {bind}"))?;
+    let server_config = ServerConfig::with_crypto(Arc::new(quic));
+
+    // Runtime-agnostic construction: bind a std UDP socket and hand quinn the
+    // smol runtime, instead of the tokio-only `Endpoint::server` convenience.
+    let socket = std::net::UdpSocket::bind(bind)
+        .with_context(|| format!("binding UDP socket on {bind}"))?;
+    let endpoint = Endpoint::new(
+        EndpointConfig::default(),
+        Some(server_config),
+        socket,
+        Arc::new(SmolRuntime),
+    )
+    .with_context(|| format!("creating QUIC endpoint on {bind}"))?;
     Ok(endpoint)
 }

@@ -13,7 +13,6 @@
 
 use anyhow::Result;
 use simulboot_common::{InputEvent, SurfaceAnnounce};
-use tokio::sync::mpsc;
 
 /// One encoded frame ready for the content channel.
 #[derive(Debug, Clone)]
@@ -26,11 +25,11 @@ pub struct EncodedFrame {
 
 /// Channel the source pushes encoded frames into; the runtime forwards them onto
 /// the QUIC content (datagram) channel.
-pub type FrameSink = mpsc::Sender<EncodedFrame>;
+pub type FrameSink = async_channel::Sender<EncodedFrame>;
 
 /// Channel the runtime pushes decoded input events into; the source injects them
 /// into the source OS.
-pub type InputStream = mpsc::Receiver<InputEvent>;
+pub type InputStream = async_channel::Receiver<InputEvent>;
 
 /// A capture/encode/inject backend for one surface.
 ///
@@ -72,10 +71,10 @@ impl CaptureSource for NullCapture {
         self.announce.clone()
     }
 
-    fn run(self: Box<Self>, _frames: FrameSink, mut input: InputStream) -> Result<()> {
+    fn run(self: Box<Self>, _frames: FrameSink, input: InputStream) -> Result<()> {
         // No capture backend: emit nothing, but stay alive draining input so the
         // routing path can be tested. Returns when the runtime closes `input`.
-        while let Some(event) = input.blocking_recv() {
+        while let Ok(event) = input.recv_blocking() {
             tracing::debug!(?event, "NullCapture: dropping input (no backend)");
         }
         Ok(())

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use quinn::crypto::rustls::QuicClientConfig;
-use quinn::{ClientConfig, Endpoint};
+use quinn::{ClientConfig, Endpoint, EndpointConfig, SmolRuntime};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
@@ -26,8 +26,12 @@ pub fn client_endpoint() -> Result<Endpoint> {
     tls.alpn_protocols = vec![ALPN.to_vec()];
 
     let quic = QuicClientConfig::try_from(tls).context("building QUIC client config")?;
-    let mut endpoint =
-        Endpoint::client("0.0.0.0:0".parse().unwrap()).context("binding client endpoint")?;
+
+    // Runtime-agnostic construction on the smol runtime (no server config: this
+    // endpoint only dials out). An ephemeral local UDP port.
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").context("binding client UDP socket")?;
+    let mut endpoint = Endpoint::new(EndpointConfig::default(), None, socket, Arc::new(SmolRuntime))
+        .context("creating client endpoint")?;
     endpoint.set_default_client_config(ClientConfig::new(Arc::new(quic)));
     Ok(endpoint)
 }

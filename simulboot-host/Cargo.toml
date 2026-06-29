@@ -13,7 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 simulboot-common.workspace = true
-tokio.workspace = true
+smol.workspace = true
+async-channel.workspace = true
 quinn.workspace = true
 bytes.workspace = true
 bincode.workspace = true

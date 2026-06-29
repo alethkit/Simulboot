@@ -22,7 +22,6 @@ use simulboot_common::{
     surface_id_from_seed, Codec, FrameHeader, HostProvenance, OsKind, StructureMessage,
     SurfaceAnnounce,
 };
-use tokio::sync::mpsc;
 
 mod capture;
 mod net;
@@ -36,8 +35,7 @@ mod linux;
 
 use capture::{CaptureSource, EncodedFrame};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -51,28 +49,30 @@ async fn main() -> Result<()> {
 
     let cfg = Config::from_args(std::env::args().skip(1))?;
     let announce = cfg.surface_announce();
+    let os = cfg.os;
 
     let endpoint = net::server_endpoint(cfg.bind)?;
     tracing::info!(bind = %cfg.bind, name = %cfg.name, "host listening");
 
-    while let Some(incoming) = endpoint.accept().await {
-        let announce = announce.clone();
-        let os = cfg.os;
-        tokio::spawn(async move {
-            match incoming.await {
-                Ok(conn) => {
-                    let peer = conn.remote_address();
-                    tracing::info!(%peer, "compositor connected");
-                    if let Err(e) = serve_connection(conn, announce, os).await {
-                        tracing::warn!(%peer, error = %e, "connection ended");
+    smol::block_on(async move {
+        while let Some(incoming) = endpoint.accept().await {
+            let announce = announce.clone();
+            smol::spawn(async move {
+                match incoming.await {
+                    Ok(conn) => {
+                        let peer = conn.remote_address();
+                        tracing::info!(%peer, "compositor connected");
+                        if let Err(e) = serve_connection(conn, announce, os).await {
+                            tracing::warn!(%peer, error = %e, "connection ended");
+                        }
                     }
+                    Err(e) => tracing::warn!(error = %e, "handshake failed"),
                 }
-                Err(e) => tracing::warn!(error = %e, "handshake failed"),
-            }
-        });
-    }
-
-    Ok(())
+            })
+            .detach();
+        }
+        Ok(())
+    })
 }
 
 /// Drive one compositor connection: announce, then concurrently pump frames out
@@ -85,16 +85,17 @@ async fn serve_connection(conn: quinn::Connection, announce: SurfaceAnnounce, os
         .context("sending Announce")?;
 
     // Wire the capture backend to the runtime via channels.
-    let (frame_tx, mut frame_rx) = mpsc::channel::<EncodedFrame>(8);
-    let (input_tx, input_rx) = mpsc::channel(64);
+    let (frame_tx, frame_rx) = async_channel::bounded::<EncodedFrame>(8);
+    let (input_tx, input_rx) = async_channel::bounded(64);
     let source = build_source(os, announce.clone())?;
-    let capture_task = tokio::task::spawn_blocking(move || source.run(frame_tx, input_rx));
+    // The capture loop blocks (native callbacks); run it on smol's blocking pool.
+    let capture_task = smol::unblock(move || source.run(frame_tx, input_rx));
 
     // Outbound: forward encoded frames onto the content (datagram) channel.
     let surface_id = announce.id;
     let conn_out = conn.clone();
-    let frame_task = tokio::spawn(async move {
-        while let Some(frame) = frame_rx.recv().await {
+    let frame_task = smol::spawn(async move {
+        while let Ok(frame) = frame_rx.recv().await {
             if let Err(e) = send_frame(&conn_out, surface_id, &frame) {
                 tracing::warn!(error = %e, "dropping frame");
             }
@@ -141,10 +142,12 @@ async fn serve_connection(conn: quinn::Connection, announce: SurfaceAnnounce, os
         }
     }
 
-    // Tear down: closing input_tx ends the capture loop, which ends frame_rx.
+    // Tear down: closing input_tx ends the capture loop, which drops frame_tx and
+    // ends the frame task; await the blocking capture to finish, then cancel the
+    // forwarder in case it is still draining.
     drop(input_tx);
-    frame_task.abort();
     let _ = capture_task.await;
+    frame_task.cancel().await;
     Ok(())
 }
 

@@ -114,8 +114,8 @@ fn parse_http_url(url: &str) -> Result<(String, u16, String)> {
 /// Minimal HTTP/1.1 GET returning the response body. Adequate for fetching one
 /// session image from a trusted Tailscale peer.
 async fn http_get(host: &str, port: u16, path: &str) -> Result<Vec<u8>> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpStream;
+    use smol::io::{AsyncReadExt, AsyncWriteExt};
+    use smol::net::TcpStream;
 
     let mut stream = TcpStream::connect((host, port))
         .await

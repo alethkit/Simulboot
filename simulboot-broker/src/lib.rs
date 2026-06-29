@@ -19,11 +19,12 @@
 //! shelling out to the `simulboot-broker` binary.
 
 use std::future::Future;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Context;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use smol::io::{AsyncReadExt, AsyncWriteExt};
+use smol::net::{AsyncToSocketAddrs, TcpListener, TcpStream};
 
 /// A session image ready to be served.
 #[derive(Debug, Clone)]
@@ -70,7 +71,7 @@ impl ServedImage {
 /// connections are not forcibly drained (each is short-lived).
 pub async fn serve<A, S>(addr: A, image: ServedImage, shutdown: S) -> anyhow::Result<()>
 where
-    A: tokio::net::ToSocketAddrs,
+    A: AsyncToSocketAddrs,
     S: Future<Output = ()>,
 {
     let listener = TcpListener::bind(addr).await.context("binding broker listener")?;
@@ -80,21 +81,37 @@ where
     }
     let image = Arc::new(image);
 
-    tokio::pin!(shutdown);
+    // Race shutdown against each accept; either branch yields an `Event`.
+    enum Event {
+        Shutdown,
+        Accepted(std::io::Result<(TcpStream, SocketAddr)>),
+    }
+
+    let mut shutdown = std::pin::pin!(shutdown);
     loop {
-        tokio::select! {
-            _ = &mut shutdown => {
+        let event = smol::future::or(
+            async {
+                shutdown.as_mut().await;
+                Event::Shutdown
+            },
+            async { Event::Accepted(listener.accept().await) },
+        )
+        .await;
+
+        match event {
+            Event::Shutdown => {
                 tracing::info!("broker shutting down");
                 return Ok(());
             }
-            accepted = listener.accept() => {
+            Event::Accepted(accepted) => {
                 let (stream, peer) = accepted.context("accepting connection")?;
                 let image = Arc::clone(&image);
-                tokio::spawn(async move {
+                smol::spawn(async move {
                     if let Err(e) = handle_connection(stream, &image).await {
                         tracing::warn!(%peer, error = %e, "broker connection error");
                     }
-                });
+                })
+                .detach();
             }
         }
     }
