@@ -58,6 +58,11 @@ The headless driver presents via `render::HeadlessRenderer`, which logs strip
 state; the real Metal renderer and winit event loop plug into the same
 `Renderer` trait and `Link` API.
 
+The 🚧 rows above are tracked with exact code locations in
+[`SKELETONS.md`](SKELETONS.md); [`CLAUDE.md`](CLAUDE.md) collects the build
+commands, invariants, and conventions for working in the repo, and
+[`DEPENDENCIES.md`](DEPENDENCIES.md) records every external crate and why.
+
 ## Build & test
 
 ```sh
