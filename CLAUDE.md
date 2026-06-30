@@ -102,6 +102,8 @@ already known and scoped.
   the transitive `tokio/sync` leaf via quinn).
 - `alternatives.md` — close-call tech choices to revisit, each with the trigger
   that should prompt it.
+- `docs/testing-macos.md` — how the macOS capture backend is tested (CI compile
+  lane + the manual live-capture loopback and its permissions).
 
 ## Conventions for changes
 

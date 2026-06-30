@@ -10,7 +10,7 @@ env:
 
 jobs:
   check:
-    name: clippy · test
+    name: linux · clippy · test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +19,23 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       # CLAUDE.md's bar: zero clippy warnings across all targets.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  # macOS lane: the only place the cfg(target_os = "macos") capture backend is
+  # compiled — Linux CI never sees it. Free on public repos (standard runner).
+  # It compile-checks and unit-tests; it does NOT do live screen capture
+  # (headless runners have no granted Screen-Recording permission). Live capture
+  # is the manual loopback in docs/testing-macos.md.
+  check-macos:
+    name: macos · clippy · test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
