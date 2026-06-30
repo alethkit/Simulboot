@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+    "simulboot-common",
+    "simulboot-host",
+    "simulboot-client",
+    "simulboot-broker",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/alethkit/simulboot"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Workspace-internal crates
+simulboot-common = { path = "simulboot-common" }
+simulboot-broker = { path = "simulboot-broker" }
+
+# Serialisation / wire format
+# postcard, not bincode: bincode is unmaintained (RUSTSEC-2025-0141). postcard is
+# a maintained, serde-native binary format with a documented, stable wire spec —
+# the right fit for a versioned host↔compositor protocol. See docs/alternatives.md
+# for the bitcode option to revisit.
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+quick-xml = "0.31"
+sha2 = "0.10"
+hex = "0.4"
+
+# Async runtime + transport
+#
+# Deliberately not tokio (see docs/plans/0002-async-runtime.md): for a low-level
+# compositor whose real work is GPU/capture, the smol + async-io stack is a
+# lighter fit. quinn keeps its ergonomic API on its `runtime-smol` feature.
+smol = "2"
+async-channel = "2"
+ctrlc = "3"
+quinn = { version = "0.11", default-features = false, features = ["runtime-smol", "rustls-ring"] }
+bytes = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rcgen = "0.13"
+
+# Diagnostics
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Testing
+proptest = "1"
