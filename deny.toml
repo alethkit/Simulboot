@@ -1,0 +1,41 @@
+# cargo-deny — the dependency standing gate.
+#
+# Run locally: `cargo deny check advisories bans sources`
+# CI runs the same (see .github/workflows/ci.yml). The advisories check is the
+# one that would have caught bincode (RUSTSEC-2025-0141): it fails the build on
+# any security vulnerability or unmaintained-crate advisory anywhere in the tree.
+
+[advisories]
+# Fail on yanked crates; vulnerabilities are always errors.
+yanked = "deny"
+# Flag unmaintained crates across the whole tree (the bincode class).
+unmaintained = "all"
+# Add IDs here only with a written justification, never to silence noise.
+ignore = []
+
+[bans]
+# Duplicate major versions in our tree are upstream-caused (e.g. getrandom 0.2
+# via ring and 0.3 via rand); surface them in the log without failing the gate.
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+# crates.io and our path crates only — no git deps, no alternative registries.
+unknown-registry = "deny"
+unknown-git = "deny"
+
+# Licenses are NOT yet enforced (the gate runs advisories/bans/sources only).
+# The allow-list below is a starting point; validate it against the actual tree,
+# then add `licenses` to the checked commands. Tracked in SKELETONS.md.
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
